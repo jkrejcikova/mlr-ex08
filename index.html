@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Leaf Classifier - Live Mobile ONNX</title>
+  <!-- ONNX Runtime Web from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
+  <!-- QR Code Generator from CDN with local fallback -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <script>if (typeof qrcode === 'undefined') { document.write('<script src="qrcode.min.js"><\\/script>'); }</script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #22c55e;
+      --accent-hover: #16a34a;
+      --accent-glow: rgba(34, 197, 94, 0.35);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: var(--font);
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 12px 48px;
+    }
+
+    header {
+      width: 100%;
+      max-width: 520px;
+      text-align: center;
+      margin-bottom: 14px;
+    }
+
+    h1 {
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid var(--card-border);
+      padding: 4px 10px;
+      border-radius: 9999px;
+      margin-top: 8px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #eab308;
+    }
+    .status-dot.ready { background: #22c55e; }
+    .status-dot.active { background: #3b82f6; }
+    .status-dot.error { background: #ef4444; }
+
+    main {
+      width: 100%;
+      max-width: 520px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .viewport-card {
+      position: relative;
+      width: 100%;
+      background: #000;
+      border-radius: 16px;
+      overflow: hidden;
+      aspect-ratio: 1 / 1;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    video {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    #uploaded-img {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+
+    /* Square guide overlay indicating central crop */
+    .crop-guide {
+      position: absolute;
+      width: 80%;
+      height: 80%;
+      border: 2px dashed rgba(34, 197, 94, 0.85);
+      border-radius: 8px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+      pointer-events: none;
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-end;
+      padding: 6px;
+    }
+
+    .guide-tag {
+      background: rgba(0, 0, 0, 0.65);
+      color: #86efac;
+      font-size: 0.65rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .overlay-message {
+      position: absolute;
+      text-align: center;
+      padding: 16px;
+      background: rgba(15, 23, 42, 0.85);
+      border-radius: 12px;
+      backdrop-filter: blur(8px);
+      max-width: 80%;
+      font-size: 0.9rem;
+      z-index: 10;
+    }
+
+    .controls-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    button, label.btn-upload {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: var(--card-bg);
+      color: var(--text);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      min-height: 44px;
+    }
+
+    button:hover, label.btn-upload:hover {
+      background: #334155;
+      border-color: #475569;
+    }
+
+    button.btn-primary {
+      background: var(--accent);
+      color: #052e16;
+      border-color: var(--accent);
+      grid-column: span 2;
+    }
+
+    button.btn-primary:hover {
+      background: var(--accent-hover);
+    }
+
+    button.btn-primary:active, button:active, label.btn-upload:active {
+      transform: scale(0.98);
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .btn-test {
+      grid-column: span 2;
+      background: #312e81;
+      border-color: #4338ca;
+      color: #e0e7ff;
+    }
+    .btn-test:hover {
+      background: #3730a3;
+    }
+
+    /* Probabilities Section */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+
+    .card-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .fps-badge {
+      font-size: 0.7rem;
+      color: #4ade80;
+      font-family: monospace;
+    }
+
+    .prob-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .prob-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .prob-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.9rem;
+    }
+
+    .class-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 500;
+      text-transform: capitalize;
+    }
+
+    .prob-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .prob-bar-bg {
+      width: 100%;
+      height: 8px;
+      background: #0f172a;
+      border-radius: 9999px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .prob-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: #475569;
+      border-radius: 9999px;
+      transition: width 0.1s ease, background-color 0.2s ease;
+    }
+
+    .prob-row.top-class .class-label {
+      color: #86efac;
+      font-weight: 700;
+    }
+
+    .prob-row.top-class .prob-value {
+      color: #86efac;
+    }
+
+    .prob-row.top-class .prob-bar-fill {
+      background: linear-gradient(90deg, #16a34a, #4ade80);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    /* Verification Box */
+    .verify-box {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      font-size: 0.78rem;
+      display: none;
+    }
+
+    .verify-box.success {
+      display: block;
+      border-color: #22c55e;
+      color: #bbf7d0;
+    }
+
+    .verify-box.error {
+      display: block;
+      border-color: #ef4444;
+      color: #fecaca;
+    }
+
+    /* QR Code Section at the Bottom */
+    .qr-section {
+      margin-top: 8px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .qr-section-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .qr-content {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .qr-canvas-box {
+      background: #ffffff;
+      padding: 8px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 0;
+    }
+
+    #qr-canvas {
+      display: block;
+      width: 140px;
+      height: 140px;
+    }
+
+    .qr-info {
+      flex: 1;
+      min-width: 180px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .qr-instructions {
+      font-size: 0.85rem;
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    .qr-link-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.8rem;
+      word-break: break-all;
+    }
+
+    .qr-link-badge a {
+      color: #60a5fa;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .qr-link-badge a:hover {
+      text-decoration: underline;
+    }
+
+    footer {
+      margin-top: 24px;
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Offscreen canvas used for tensor preprocessing */
+    #crop-canvas {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🍃 Leaf Classifier</h1>
+    <p class="subtitle">MobileNetV3 ONNX (96×96) • Live Mobile Inference</p>
+    <div class="status-pill">
+      <span id="status-dot" class="status-dot"></span>
+      <span id="status-text">Initializing ONNX Runtime...</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Viewport Container -->
+    <div class="viewport-card">
+      <video id="camera-video" playsinline webkit-playsinline autoplay muted></video>
+      <img id="uploaded-img" alt="Uploaded leaf" />
+      <div id="crop-guide" class="crop-guide" style="display: none;">
+        <span class="guide-tag">96×96 Square Crop</span>
+      </div>
+      <div id="overlay-msg" class="overlay-message">
+        Camera is stopped. Tap <strong>Start Camera</strong> or upload a photo below.
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls-grid">
+      <button id="btn-camera" class="btn-primary">
+        <span>📷</span> Start Camera
+      </button>
+
+      <label class="btn-upload" for="file-input">
+        <span>📁</span> Upload Photo
+      </label>
+      <input type="file" id="file-input" accept="image/*" />
+
+      <button id="btn-switch-cam">
+        <span>🔄</span> Flip Camera
+      </button>
+
+      <button id="btn-test" class="btn-test">
+        <span>🧪</span> Verify check_image.jpg
+      </button>
+    </div>
+
+    <!-- Verification Result Box -->
+    <div id="verify-box" class="verify-box"></div>
+
+    <!-- Class Probabilities Card -->
+    <div class="card">
+      <div class="card-title">
+        <span>Live Class Probabilities</span>
+        <span id="fps-badge" class="fps-badge">-- FPS</span>
+      </div>
+      <div class="prob-list" id="prob-list">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- QR Code Section -->
+    <div class="qr-section">
+      <div class="qr-section-title">📱 Open on Mobile Device</div>
+      <div class="qr-content">
+        <div class="qr-canvas-box">
+          <canvas id="qr-canvas" width="140" height="140"></canvas>
+          <noscript><img src="qr.svg" width="140" height="140" alt="QR Code" /></noscript>
+        </div>
+        <div class="qr-info">
+          <p class="qr-instructions">
+            Scan this QR code with your iPhone or Android camera to open this leaf classifier live on your phone.
+          </p>
+          <div class="qr-link-badge">
+            <span>🔗</span>
+            <a id="qr-link" href="https://jkrejcikova.github.io/mlr-ex08/" target="_blank" rel="noopener noreferrer">
+              https://jkrejcikova.github.io/mlr-ex08/
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    Model: <code>leaf_model.onnx</code> • Standardized ImageNet mean/std • iPhone Safari Optimized
+  </footer>
+
+  <!-- Offscreen canvas for central crop and resize -->
+  <canvas id="crop-canvas" width="96" height="96"></canvas>
+
+  <script>
+    (() => {
+      // 1. Model Configuration from model_info.json
+      const MODEL_INFO = {
+        classes: ["apple", "cherry", "chestnut", "maple"],
+        input_size: 96,
+        mean: [0.485, 0.456, 0.406],
+        std: [0.229, 0.224, 0.225]
+      };
+
+      const EMOJIS = {
+        apple: "🍎",
+        cherry: "🍒",
+        chestnut: "🌰",
+        maple: "🍁"
+      };
+
+      const EXPECTED_CHECK = {
+        "apple": 2.6987465844285907e-06,
+        "cherry": 0.9999687671661377,
+        "chestnut": 2.6471678211237304e-05,
+        "maple": 1.992142870221869e-06
+      };
+
+      const DEPLOYED_URL = "https://jkrejcikova.github.io/mlr-ex08/";
+
+      // Elements
+      const statusDot = document.getElementById('status-dot');
+      const statusText = document.getElementById('status-text');
+      const video = document.getElementById('camera-video');
+      const uploadedImg = document.getElementById('uploaded-img');
+      const cropGuide = document.getElementById('crop-guide');
+      const overlayMsg = document.getElementById('overlay-msg');
+      const btnCamera = document.getElementById('btn-camera');
+      const btnSwitchCam = document.getElementById('btn-switch-cam');
+      const fileInput = document.getElementById('file-input');
+      const btnTest = document.getElementById('btn-test');
+      const verifyBox = document.getElementById('verify-box');
+      const probList = document.getElementById('prob-list');
+      const fpsBadge = document.getElementById('fps-badge');
+      const cropCanvas = document.getElementById('crop-canvas');
+      const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+      const qrCanvas = document.getElementById('qr-canvas');
+
+      // State
+      let session = null;
+      let inputName = '';
+      let outputName = '';
+      let cameraStream = null;
+      let isStreaming = false;
+      let currentFacingMode = 'environment';
+      let isProcessing = false;
+      let animFrameId = null;
+      let lastFrameTime = performance.now();
+      let frameCount = 0;
+      let fpsTimer = performance.now();
+
+      // Initialize Probability Display UI
+      function initProbUI() {
+        probList.innerHTML = '';
+        MODEL_INFO.classes.forEach(cls => {
+          const row = document.createElement('div');
+          row.className = 'prob-row';
+          row.id = `row-${cls}`;
+          row.innerHTML = `
+            <div class="prob-header">
+              <span class="class-label">
+                <span>${EMOJIS[cls] || '🌿'}</span>
+                <span>${cls}</span>
+              </span>
+              <span class="prob-value" id="val-${cls}">0.0%</span>
+            </div>
+            <div class="prob-bar-bg">
+              <div class="prob-bar-fill" id="bar-${cls}"></div>
+            </div>
+          `;
+          probList.appendChild(row);
+        });
+      }
+
+      function updateStatus(state, msg) {
+        statusDot.className = 'status-dot ' + state;
+        statusText.textContent = msg;
+      }
+
+      // Generate in-browser QR Code using qrcode-generator
+      function generateInBrowserQRCode() {
+        try {
+          if (typeof qrcode === 'undefined') {
+            console.warn('qrcode library not yet loaded, retrying...');
+            setTimeout(generateInBrowserQRCode, 200);
+            return;
+          }
+          const qr = qrcode(0, 'M');
+          qr.addData(DEPLOYED_URL);
+          qr.make();
+
+          const count = qr.getModuleCount();
+          const cellSize = 5;
+          const margin = 4 * cellSize;
+          const totalSize = count * cellSize + 2 * margin;
+
+          qrCanvas.width = totalSize;
+          qrCanvas.height = totalSize;
+          const ctx = qrCanvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, totalSize, totalSize);
+          ctx.fillStyle = '#000000';
+
+          for (let r = 0; r < count; r++) {
+            for (let c = 0; c < count; c++) {
+              if (qr.isDark(r, c)) {
+                ctx.fillRect(margin + c * cellSize, margin + r * cellSize, cellSize, cellSize);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('QR generation failed:', e);
+        }
+      }
+
+      // Load ONNX Model
+      async function initModel() {
+        try {
+          updateStatus('', 'Loading ONNX model...');
+          // Configure ONNX Runtime Web for iPhone Safari compatibility
+          // Single-thread WASM is rock solid across all mobile browsers and does not require COOP/COEP SharedArrayBuffer headers
+          if (typeof ort === 'undefined') {
+            throw new Error('onnxruntime-web CDN failed to load.');
+          }
+          ort.env.wasm.numThreads = 1;
+          ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+
+          session = await ort.InferenceSession.create('leaf_model.onnx', {
+            executionProviders: ['wasm']
+          });
+
+          inputName = session.inputNames[0];
+          outputName = session.outputNames[0];
+          updateStatus('ready', 'Model Ready (MobileNetV3)');
+          console.log(`ORT Loaded: input=${inputName}, output=${outputName}`);
+        } catch (err) {
+          console.error(err);
+          updateStatus('error', 'Model Error: ' + err.message);
+        }
+      }
+
+      // Softmax calculation
+      function softmax(logits) {
+        let max = -Infinity;
+        for (let i = 0; i < logits.length; i++) {
+          if (logits[i] > max) max = logits[i];
+        }
+        let sum = 0;
+        const exps = new Float32Array(logits.length);
+        for (let i = 0; i < logits.length; i++) {
+          exps[i] = Math.exp(logits[i] - max);
+          sum += exps[i];
+        }
+        for (let i = 0; i < logits.length; i++) {
+          exps[i] /= sum;
+        }
+        return exps;
+      }
+
+      // Preprocessing according to model_info.json:
+      // 1. Crop central square of frame: min(W, H)
+      // 2. Resize to input_size x input_size (96 x 96)
+      // 3. Scale RGB pixels to 0..1
+      // 4. Standardize each channel with mean/std
+      // 5. Input shape: 1 x 3 x size x size (NCHW)
+      function preprocess(source, srcWidth, srcHeight) {
+        const size = MODEL_INFO.input_size;
+        const minDim = Math.min(srcWidth, srcHeight);
+        const sx = (srcWidth - minDim) / 2;
+        const sy = (srcHeight - minDim) / 2;
+
+        // Draw cropped central square resized to 96x96
+        cropCtx.drawImage(source, sx, sy, minDim, minDim, 0, 0, size, size);
+        const imgData = cropCtx.getImageData(0, 0, size, size);
+        const rgba = imgData.data;
+
+        const numPixels = size * size;
+        const tensorData = new Float32Array(3 * numPixels);
+        const mean = MODEL_INFO.mean;
+        const std = MODEL_INFO.std;
+
+        for (let i = 0; i < numPixels; i++) {
+          const r = rgba[i * 4] / 255.0;
+          const g = rgba[i * 4 + 1] / 255.0;
+          const b = rgba[i * 4 + 2] / 255.0;
+
+          tensorData[i] = (r - mean[0]) / std[0];                   // R channel
+          tensorData[numPixels + i] = (g - mean[1]) / std[1];        // G channel
+          tensorData[2 * numPixels + i] = (b - mean[2]) / std[2];    // B channel
+        }
+
+        return new ort.Tensor('float32', tensorData, [1, 3, size, size]);
+      }
+
+      // Run Inference and Update UI
+      async function classifyImageSource(source, width, height) {
+        if (!session) return null;
+        const inputTensor = preprocess(source, width, height);
+        const feeds = {};
+        feeds[inputName] = inputTensor;
+        const results = await session.run(feeds);
+        const logits = results[outputName].data;
+        const probs = softmax(logits);
+        displayProbabilities(probs);
+        return probs;
+      }
+
+      // Display probabilities on UI
+      function displayProbabilities(probs) {
+        let maxIdx = 0;
+        let maxVal = -1;
+        for (let i = 0; i < probs.length; i++) {
+          if (probs[i] > maxVal) {
+            maxVal = probs[i];
+            maxIdx = i;
+          }
+        }
+
+        MODEL_INFO.classes.forEach((cls, idx) => {
+          const p = probs[idx];
+          const row = document.getElementById(`row-${cls}`);
+          const valEl = document.getElementById(`val-${cls}`);
+          const barEl = document.getElementById(`bar-${cls}`);
+
+          if (idx === maxIdx) {
+            row.classList.add('top-class');
+          } else {
+            row.classList.remove('top-class');
+          }
+
+          let pctText = (p * 100).toFixed(2) + '%';
+          if (p < 0.0001 && p > 0) {
+            pctText = p.toExponential(2);
+          }
+          valEl.textContent = pctText;
+          barEl.style.width = Math.max(1, p * 100) + '%';
+        });
+      }
+
+      // Live camera inference loop
+      async function liveLoop() {
+        if (!isStreaming) return;
+
+        if (!isProcessing && session && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
+          isProcessing = true;
+          const startTime = performance.now();
+          try {
+            await classifyImageSource(video, video.videoWidth, video.videoHeight);
+            
+            // FPS calculation
+            frameCount++;
+            const now = performance.now();
+            if (now - fpsTimer >= 1000) {
+              const fps = Math.round((frameCount * 1000) / (now - fpsTimer));
+              const ms = Math.round(now - startTime);
+              fpsBadge.textContent = `${fps} FPS • ${ms}ms`;
+              frameCount = 0;
+              fpsTimer = now;
+            }
+          } catch (e) {
+            console.error('Frame inference error:', e);
+          } finally {
+            isProcessing = false;
+          }
+        }
+
+        animFrameId = requestAnimationFrame(liveLoop);
+      }
+
+      // Camera Management (iPhone Safari compatible)
+      async function startCamera(facingMode = 'environment') {
+        stopCamera();
+        uploadedImg.style.display = 'none';
+        video.style.display = 'block';
+        overlayMsg.style.display = 'none';
+        cropGuide.style.display = 'flex';
+        updateStatus('active', 'Starting Camera...');
+
+        try {
+          const constraints = {
+            audio: false,
+            video: {
+              facingMode: { ideal: facingMode },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            }
+          };
+
+          let stream;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+          } catch (firstErr) {
+            console.warn('Ideal facingMode failed, falling back to basic video:', firstErr);
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          }
+
+          cameraStream = stream;
+          currentFacingMode = facingMode;
+          video.srcObject = stream;
+
+          // Safari on iPhone requires explicit play() call
+          await video.play();
+
+          isStreaming = true;
+          btnCamera.innerHTML = '<span>⏹</span> Stop Camera';
+          btnCamera.className = 'btn-primary';
+          updateStatus('active', 'Camera Active (Live)');
+          liveLoop();
+        } catch (err) {
+          console.error('Camera error:', err);
+          updateStatus('error', 'Camera access denied / unavailable');
+          overlayMsg.innerHTML = `<strong>Camera Error:</strong> ${err.message}.<br>Please allow camera permissions or use Photo Upload.`;
+          overlayMsg.style.display = 'block';
+          cropGuide.style.display = 'none';
+        }
+      }
+
+      function stopCamera() {
+        if (animFrameId) {
+          cancelAnimationFrame(animFrameId);
+          animFrameId = null;
+        }
+        isStreaming = false;
+        if (cameraStream) {
+          cameraStream.getTracks().forEach(t => t.stop());
+          cameraStream = null;
+        }
+        video.srcObject = null;
+        btnCamera.innerHTML = '<span>📷</span> Start Camera';
+        btnCamera.className = 'btn-primary';
+        fpsBadge.textContent = '-- FPS';
+      }
+
+      // Event Listeners
+      btnCamera.addEventListener('click', () => {
+        if (isStreaming) {
+          stopCamera();
+          cropGuide.style.display = 'none';
+          overlayMsg.style.display = 'block';
+          overlayMsg.innerHTML = 'Camera is stopped. Tap <strong>Start Camera</strong> or upload a photo.';
+          updateStatus('ready', 'Model Ready');
+        } else {
+          startCamera(currentFacingMode);
+        }
+      });
+
+      btnSwitchCam.addEventListener('click', () => {
+        const nextMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
+        startCamera(nextMode);
+      });
+
+      // Photo upload fallback
+      fileInput.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        stopCamera();
+        video.style.display = 'none';
+        overlayMsg.style.display = 'none';
+        cropGuide.style.display = 'flex';
+        updateStatus('active', 'Processing uploaded image...');
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          uploadedImg.onload = async () => {
+            uploadedImg.style.display = 'block';
+            await classifyImageSource(uploadedImg, uploadedImg.naturalWidth, uploadedImg.naturalHeight);
+            updateStatus('ready', 'Photo Classified');
+          };
+          uploadedImg.src = evt.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      // Verify check_image.jpg against check_expected.json
+      async function runCheckVerification() {
+        verifyBox.className = 'verify-box';
+        verifyBox.style.display = 'block';
+        verifyBox.textContent = 'Running check_image.jpg verification...';
+        stopCamera();
+        video.style.display = 'none';
+        overlayMsg.style.display = 'none';
+        cropGuide.style.display = 'flex';
+
+        try {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = 'check_image.jpg';
+          });
+
+          uploadedImg.src = img.src;
+          uploadedImg.style.display = 'block';
+
+          const probs = await classifyImageSource(img, img.naturalWidth, img.naturalHeight);
+          if (!probs) throw new Error('Model inference returned empty output.');
+
+          let allPassed = true;
+          let details = [];
+
+          MODEL_INFO.classes.forEach((cls, i) => {
+            const actual = probs[i];
+            const expected = EXPECTED_CHECK[cls];
+            const diff = Math.abs(actual - expected);
+            // Difference should be tiny (float32 precision < 1e-4)
+            const pass = diff < 1e-4;
+            if (!pass) allPassed = false;
+            details.push(`${cls}: ${actual.toExponential(4)} (expected ${expected.toExponential(4)})`);
+          });
+
+          if (allPassed) {
+            verifyBox.className = 'verify-box success';
+            verifyBox.innerHTML = `
+              <strong>✓ Verification Passed!</strong> Matches check_expected.json<br>
+              • Cherry: ${(probs[1] * 100).toFixed(4)}% (Top class)<br>
+              • Apple: ${probs[0].toExponential(3)}<br>
+              • Chestnut: ${probs[2].toExponential(3)}<br>
+              • Maple: ${probs[3].toExponential(3)}
+            `;
+            updateStatus('ready', 'Verification Passed (100% Match)');
+          } else {
+            verifyBox.className = 'verify-box error';
+            verifyBox.innerHTML = `<strong>Verification Mismatch:</strong><br>${details.join('<br>')}`;
+            updateStatus('error', 'Verification Failed');
+          }
+        } catch (e) {
+          verifyBox.className = 'verify-box error';
+          verifyBox.innerHTML = `<strong>Verification Error:</strong> ${e.message}`;
+          updateStatus('error', 'Verification Error');
+        }
+      }
+
+      btnTest.addEventListener('click', runCheckVerification);
+
+      // Startup
+      initProbUI();
+      generateInBrowserQRCode();
+      initModel();
+
+      // Expose verification function globally for automated testing
+      window.__leafClassifier = {
+        runCheckVerification,
+        classifyImageSource,
+        getModelInfo: () => MODEL_INFO,
+        getExpectedCheck: () => EXPECTED_CHECK
+      };
+    })();
+  </script>
+</body>
+</html>
